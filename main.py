@@ -1,8 +1,10 @@
 
 #-*-coding:utf-8-*-
+from __future__ import division
 import json
 import uuid
 import types
+
 
 #==types.ts==
 class Options:
@@ -12,6 +14,10 @@ class Options:
         pass 
     def setPosition(self,id, x, y):
         pass 
+
+    def animationAnimate(self,id,data, isSequence):
+        pass
+
     def positionAnimate(self,id, data, delay, parentHeight):
         pass 
     def setAnchorPoint(self,id, x, y):
@@ -98,32 +104,72 @@ def convertColor(c):
 def isNum(d):
     return type(d) == types.FloatType or type(d) == types.IntType or type(d) == types.LongType
        
-
-
 class Traverse:
     def __init__(self, data, containerId, useSpriteFrame, options):
         self.options = options
         self.assets = {}
+        self.layers = {}
         self.data = data
         self.useSpriteFrame = useSpriteFrame
+        self.rootWidth =  data["w"]
+        self.rootHeight = data["h"]
+        self.rootId = "root"
         
         #初使化asset
         for asset in data['assets']:
             if "id" in asset.keys():               
                 self.assets[asset["id"]] = asset
-        
-        options.createLayer(containerId, data['w'], data['h'])
 
+        #初使化layer
+        z = len(data["layers"])
+        sortedLayers = {}
         for layer in data["layers"]:
-            self.__traverseLayer(layer,containerId, 0, data["w"], data["h"])
+            if "ind" in layer.keys():               
+                self.layers[layer["ind"]] = layer   
+                if "parent" not in layer:
+                    if not self.rootId in sortedLayers.keys():
+                         sortedLayers[self.rootId] = []
+                    
+                    sortedLayers[self.rootId].insert(0, layer)
+                   
+                else:
+                    if not layer["parent"] in sortedLayers.keys():
+                         sortedLayers[layer["parent"]] = []                    
+                    if layer["parent"] == 0:
+                        sortedLayers[layer["parent"]].insert(0, layer)
+                    else:
+                        sortedLayers[layer["parent"]].append(layer)
+               
+    
+        self.layers[self.rootId] = {"w":self.rootWidth, "h": self.rootHeight, "z" :0}
 
-   
+        #创建root layer
+        options.createLayer(self.rootId, data['w'], data['h'])
+        
+     
+        self.__traverseLayer2(self.rootId, sortedLayers)
+
+    def __traverseLayer2(self, rootId, sortedLayers):
+        if rootId not in sortedLayers.keys():
+            return 
+
+        for layer in sortedLayers[rootId]:                      
+            if "ind" not in layer.keys():
+                continue
+            self.__traverseLayer(layer, 0)
+            self.__traverseLayer2(layer['ind'], sortedLayers)
+
     def __getTime(self, time):
         return time / self.data['fr']
 
-    def getAsset(self, id):
-        if id in self.assets.keys():
-            return self.assets[id]
+    def getAsset(self, refId):
+        if refId in self.assets.keys():
+            return self.assets[refId]
+        return None
+    
+    def getLayer(self, ind):
+        if ind in self.layers.keys():
+            return self.layers[ind]
         return None
 
     def __c(self, x, d, parentHeight):
@@ -232,6 +278,7 @@ class Traverse:
                      "t":self.__getTime( ret["nextTime"] - item["t"] ),
                      "startTime" :startTime
                 })
+            i = i -1
 
             ret["nextTime"] = item["t"]
         return ret
@@ -239,12 +286,12 @@ class Traverse:
 
 
 
-    def __applyTransform(self, layer, id,parentId,    width,    height,    parentWidth,    parentHeight,    st):
+    def __applyTransform(self, layer, id,parentId,  width,    height,  parentWidth,    parentHeight,    st):
         options = self.options
-
+              
         if not "ks" in layer.keys():
             return 
-
+        
         if "o" in layer["ks"]:
             k = layer["ks"]["o"]["k"]
             if type(k) == types.ListType and  len(k) > 1:
@@ -260,7 +307,8 @@ class Traverse:
             if type(k) == types.DictType and  "x" in k.keys():
                 options.setAnchorPoint(id, k['x'] / width, 1 - k['y'] / height)
             else:
-                pass #eeror
+                if width != 0 and  height != 0:
+                    options.setAnchorPoint(id, k[0] / width, 1 - k[1] / height)
 
         if "p" in layer["ks"]:
             k = layer["ks"]["p"]["k"]
@@ -294,48 +342,73 @@ class Traverse:
                 options.scaleAnimate(id, ret['arr'], self.__getTime(st))
 
 
-
-
-
-    def __traverseLayer(self, layer, parentId,st,parentWidth,parentHeight ):
+    def __traverseLayer(self, layer,st, id = None):
         ty = layer["ty"]
         options = self.options
 
-        if ty == Layer.shape:
-            id = genId()
-            options.createLayer(id, 0, 0)
-            self.__applyTransform(layer, id, parentId, parentWidth, parentHeight, parentWidth, parentHeight, st)
-            options.addChild(id, parentId)
+        ind = id
+
+        if id:
+            ind = id   
+        else:    
+            if "ind" in layer.keys():
+                ind = layer["ind"] 
+            else:
+                raise Exception("ind not in layer.keys") 
+
+        parentId = self.rootId
+        if "parent" in layer.keys():
+            parentId = layer["parent"]
+
+        parentInfo = self.getLayer(parentId)
+        if "w" not in parentInfo.keys():
+            print("here")
+        parentWidth = parentInfo["w"]
+        parentHeight = parentInfo["h"]
+
+        if ty == Layer.shape:         
+            options.createLayer(ind, 0, 0)
+            self.__applyTransform(layer, ind, parentId, parentWidth, parentHeight, parentWidth, parentHeight, st)
+            options.addChild(ind, parentId)
             for shape in layer["shapes"]:
-                self.__traverseShape(shape, id, parentWidth, parentHeight)     
+                self.__traverseShape(shape, ind, parentWidth, parentHeight) 
+
         elif ty == Layer.solid:
             pass
 
         elif ty == Layer.image:
-            id = layer["refId"]
-            asset = self.getAsset(id)
+            #get the asset info by refId
+            refId = layer["refId"]
+            asset = self.getAsset(refId)
             if asset == None:
                 return
             
             p = asset["p"]
             if not self.useSpriteFrame:
                 p = asset["u"] + p
+            
+            options.createSprite(ind, p, asset['w'], asset['h'])
+            options.setContentSize(ind, asset['w'], asset['h'])
+            z = 0
+            if "z" in layer.keys():
+                z = layer["z"]
+            options.addChild(ind, parentId, z)
+            if 'w' not in layer.keys():
+                layer['w'] = asset['w']
+                layer['h'] = asset['h']
+        
+            self.__applyTransform(layer, ind, parentId, asset['w'], asset['h'], parentWidth, parentHeight, st)
 
-            options.createSprite(id, p, asset['w'], asset['h'])
-            options.setContentSize(id, asset['w'], asset['h'])
-            options.addChild(id, parentId)
-            self.__applyTransform(layer, id, parentId, asset['w'], asset['h'], parentWidth, parentHeight, st)
         elif ty == Layer.null or ty == Layer.precomp:
             refId = None
             if "refId" in layer:
                 refId = layer['refId']
-            id = genId(refId)
-            layer['xid'] = id
-
+    
             size =  [layer["w"],  layer["h"]] if ty != Layer.null else map(lambda x: x*2,layer["ks"]["a"]["k"])
             width, height =  size[0], size[1]
-            options.createLayer(id, width, height)
-            self.__applyTransform(layer, id, parentId, width, height, parentWidth, parentHeight, st)
+            if 'w' not in layer.keys():
+                layer['w'] = width
+                layer['h'] = height
 
             #effects
             if "ef" in layer.keys():
@@ -344,40 +417,110 @@ class Traverse:
 
 
             asset = None
-            if "refId" in layer.keys():
-                asset = self.getAsset(layer["refId"])  
-            if  (asset and  "layers" in asset.keys()):
-                sortedLayers = []
-                indexIdMapping = {}
-                for l in asset["layers"]:
-                    if "parent" in l.keys():
-                        sortedLayers.append(l)
+            if refId:
+                asset = self.getAsset(refId)  
+           
+            if  (asset and  "layers" in asset.keys()):                 
+                data = []
+                assetLayers = asset["layers"]
+                isSequence = True
+
+                for assetLayer in  reversed(assetLayers):
+                    if assetLayer['ty'] != Layer.image:
+                        raise Exception("ty no supper") 
+                    
+                    assetLayer_refId = assetLayer["refId"]
+                    assetLayer_asset = self.getAsset(assetLayer_refId)
+                    if assetLayer_asset == None:
+                        raise Exception("no fond assert of assetLayer") 
+                    
+                    p = assetLayer_asset["p"]
+                    if not self.useSpriteFrame:
+                        p = assetLayer_asset["u"] + p
+                    
+                    k = assetLayer["ks"]["p"]["k"]                 
+                    _width, _height = 0,0
+                    if type(k) ==  types.ListType and  isNum(k[0]):
+                        _width, _height =  k[0], parentHeight - k[1]
+                    elif type(k) ==  types.ListType and type(k[0]) == types.DictType:                       
+                        ret = self.__parseK(k)
+                        _width =  ret['arr']
+                        isSequence = False
+                         
+                    k = assetLayer["ks"]["o"]["k"]
+                    opacity = k
+
+                    if type(k) == types.ListType and  len(k) > 1:                                               
+                        ret = self.__parseK(k)
+                        opacity =  ret['arr']
+                        isSequence = False
+
+                    k = assetLayer["ks"]["a"]["k"]
+                    anchorPointX, anchorPointY = k[0] / width, 1 - k[1] / height
+
+                    k = assetLayer["ks"]["r"]["k"]
+                    rotation =  k
+                    if type(k) ==  types.ListType:                  
+                        ret = self.__parseK(k)
+                        rotation =  ret['arr']
+                        isSequence = False
+                   
+                    k = assetLayer["ks"]["s"]["k"]       
+                    scaleX, scaleY = 0,0
+                    if type(k) ==  types.ListType and not isNum(k[0]):                  
+                        ret = self.__parseK(k)
+                        scaleX =  ret['arr']
+                        isSequence = False
                     else:
-                        sortedLayers.insert(0, l) 
+                        scaleX, scaleY =  k[0] / 100, k[1] / 100
 
-                    if "ind" in l.keys():
-                         indexIdMapping[l["ind"]] = l
 
-                for l in sortedLayers:
-                    correctId, parentWidth, parentHeight = 0,0,0
-                    if "parent" in l:
-                        parent = indexIdMapping[l["parent"]]
-                        correctId = parent["xid"]
-                        size =  [parent["w"],  parent["h"]] if ty != Layer.null else map(lambda x: x*2,parent["ks"]["a"]["k"])
-                        parentWidth, parentHeight = size[0], size[1]
-                    else:                      
-                        correctId = id
-                        parentWidth = width
-                        parentHeight = height
-                    nst = st 
-                    if "st" in layer :
-                        nst = nst + layer['st']
-                    else:
-                        nst = nst + "0"
+                    data.append({
+                         "path": p,
+                          "width": _width,
+                          "height":_height ,
+                          "opacity":opacity,
+                          "anchorPointX":anchorPointX,
+                          "anchorPointY": anchorPointY,
+                          "rotation":rotation,
+                          "parentHeight":parentHeight,
+                          "st":self.__getTime(assetLayer['st'])
+                     })
+                if len(data) > 0 and isSequence:
+                    options.animationAnimate(ind, data, isSequence )
+                    options.setPosition(ind,data[0]['width'], data[0]['height'])               
+                    options.setAnchorPoint(ind,data[0]['anchorPointX'],data[0]['anchorPointY'])
+                    options.setOpacity(ind,data[0]['opacity'])
+                    options.setRotation(ind,data[0]['rotation'])
+                else:   
+                    options.createLayer(ind, width, height)               
+                    sortedLayers = {}
+                    for assetLayer in assetLayers:
+                        if "ind" in assetLayer.keys():               
+                            self.layers[str(ind) +"_"  +  str(assetLayer ["ind"])] = layer   
+                            if "parent" not in assetLayer.keys():
+                                if not ind in sortedLayers.keys():
+                                    sortedLayers[ind] = []
+                                
+                                sortedLayers[ind].insert(0, assetLayer)
+                                assetLayer["parent"] = ind
+                            else:
+                                if not str(ind) +"_"  + str(assetLayer["parent"]) in sortedLayers.keys():
+                                    sortedLayers[str(ind) +"_"  + str(assetLayer["parent"])] = []                    
+                                if assetLayer["parent"] == 0:
+                                    sortedLayers[str(ind) +"_"  + str(assetLayer["parent"])].insert(0,assetLayer)
+                                else:
+                                    sortedLayers[str(ind) +"_"  + str(assetLayer["parent"])].append(assetLayer)
+                                assetLayer["parent"] = str(ind) +"_"  + str(assetLayer["parent"])
+                            assetLayer["ind"]= str(ind) +"_"  + str(assetLayer["ind"])
+                    self.__traverseLayer2(ind, sortedLayers)
+            else:
+                options.createLayer(ind, width, height)
+            self.__applyTransform(layer, ind, parentId, width, height, parentWidth, parentHeight, st)
+            options.addChild(ind, parentId)
 
-                    self.__traverseLayer(l, correctId,  nst, parentWidth, parentHeight)
 
-            options.addChild(id, parentId)
+
 
 
 #lua.ts
@@ -407,11 +550,17 @@ class LuaOptions(Options):
     
     def positionAnimate(self,id, data, delay, parentHeight):  
         a = []
+        t = 0
         for x in data:      
-            temp = "cc.MoveTo:create(%s,cc.p(%s,%s))"%(x["startTime"], x["s"][0], parentHeight - x["s"][1])
-            a.append(temp) 
+            # temp = "cc.MoveTo:create(%s,cc.p(%s,%s))"%(x["startTime"], x["s"][0], parentHeight - x["s"][1])
+            # a.append(temp) 
 
-            temp = "cc.BezierTo:create(%s,{cc.p(%s,%s), cc.p(%s,%s), cc.p(%s,%s)} )" %(x["startTime"], 
+            if  x["startTime"] - t > 0:
+                a.insert(0, "cc.DelayTime:create(%s)"%(x["startTime"] - t)) 
+                t = t + x["startTime"]
+            t = t + x["t"]
+
+            temp = "cc.BezierTo:create(%s,{cc.p(%s,%s), cc.p(%s,%s), cc.p(%s,%s)} )" %(x["t"], 
                 x["s"][0] + x["to"][0] , parentHeight - (x['s'][1] + x['to'][1]),
                 x["ti"][0] + x["e"][0] , parentHeight - (x['ti'][1] + x['e'][1]),
                 x['e'][0], parentHeight - x['e'][1])
@@ -429,9 +578,14 @@ class LuaOptions(Options):
 
     def rotationAnimate(self,id, data, delay):
         a = []
+        t = 0
         for x in data:      
-            temp = "cc.RotateTo:create(%s, %s)"%(x["startTime"], x["s"][0])
-            a.append(temp) 
+            # temp = "cc.RotateTo:create(%s, %s)"%(x["startTime"], x["s"][0])
+            # a.append(temp) 
+            if  x["startTime"] - t > 0:
+                a.insert(0, "cc.DelayTime:create(%s)"%(x["startTime"] - t)) 
+                t = t + x["startTime"]
+            t = t + x["t"]
 
             temp = "cc.RotateTo:create(%s, %s)"%(x["t"], x["e"][0])            
             a.append(temp)        
@@ -443,7 +597,32 @@ class LuaOptions(Options):
             "table.insert(data, {node=t['%s'],action=cc.Sequence:create(%s)})"%(id, ",".join(a))
         ) 
 
+    def animationAnimate(self,id,data, isSequence):
+        if isSequence:
+            if len(data) <= 0:
+                return 
+            self.__append( "t['%s'] = display.newSprite('%s')" % (id,data[0]["path"]) ) 
+            
+            self.__append( "local animation = cc.Animation:create()")
+
+            for v in data:  
+                self.__append( "animation:addSpriteFrameWithFile('%s') " % (v["path"],) )         
+
+            self.__append( "animation:setDelayPerUnit('%s') " % (data[1]["st"] - data[0]["st"],) ) 
+            self.__append( "animation:setRestoreOriginalFrame(true)") 
         
+            self.__append(
+                "table.insert(data, {node=t['%s'],action=cc.Sequence:create(cc.DelayTime:create(%s),cc.Animate:create(animation))})"%(id,data[0]["st"])
+            ) 
+        # else:
+        #     self.__append( "t['%s'] = display.newSprite('%s')" % (id,data[0]["path"]) ) 
+        #     for v in data:
+        #         temp = []
+        #         temp.append("cc.CallFunc:create(function() t['%s']:setTexture('%s') end)", (id,v["path"]) )
+                
+
+     
+
    
     def setScale(self,id, x, y):
         self.__append(
@@ -457,9 +636,14 @@ class LuaOptions(Options):
 
     def scaleAnimate(self,id, data, delay):
         a = []
+        t = 0
         for x in data:      
-            temp = "cc.ScaleTo:create(%s, %s, %s)"%(x["startTime"], x["s"][0]/100, x["s"][1]/100)
-            a.append(temp) 
+            # temp = "cc.ScaleTo:create(%s, %s, %s)"%(x["startTime"], x["s"][0]/100, x["s"][1]/100)
+            # a.append(temp) 
+            if  x["startTime"] - t > 0:
+                a.insert(0, "cc.DelayTime:create(%s)"%(x["startTime"] - t)) 
+                t = t + x["startTime"]
+            t = t + x["t"]
 
             temp = "cc.ScaleTo:create(%s, %s, %s)"%(x["t"], x["e"][0]/100, x["e"][1]/100)      
             a.append(temp)        
@@ -482,7 +666,7 @@ class LuaOptions(Options):
         ) 
        
         self.__append(
-            "t['%s']:setAnchorPoint(cc.p(%s, %s))"%(x, y)            
+            "t['%s']:setAnchorPoint(cc.p(%s, %s))"%(id, x, y)            
         ) 
 
     def moveTo(self,id, parentId, time, x, y):
@@ -490,6 +674,8 @@ class LuaOptions(Options):
 
 
     def addChild(self,id, parentId, localZOrder = None):
+        if str(id ) == '<built-in function id>':
+            print "run here"
         c = "g"
         if parentId != 'g':
             c =  parentId
@@ -497,7 +683,9 @@ class LuaOptions(Options):
             pass 
         
         self.__append( "t['%s']:addChild(t['%s'])"%(c,id) )
-            
+        if localZOrder:
+            self.__append( "t['%s']:setLocalZOrder(%s)"%(id, localZOrder) )
+         
             
     def getNode(self,id):
         pass 
@@ -505,11 +693,16 @@ class LuaOptions(Options):
     def setOpacity(self,id, opacity):
         self.__append("t['%s']:setOpacity(%s)"%(id, opacity)) 
 
-    def fadeTo(self,id, data, delay):
+    def fadeTo(self,id, data, delay):        
         a = []
-        for x in data:      
-            temp = "cc.FadeTo:create(%s, %s)"%(x["startTime"], x["s"][0]* 2.55)
-            a.append(temp) 
+        t = 0
+        for x in data:
+            if  x["startTime"] - t > 0:
+                a.insert(0, "cc.DelayTime:create(%s)"%(x["startTime"] - t)) 
+                t = t + x["startTime"]
+            t = t + x["t"]
+            # temp = "cc.FadeTo:create(%s, %s)"%(x["startTime"], x["s"][0]* 2.55)
+            # a.append(temp) 
 
             temp = "cc.FadeTo:create(%s, %s)"%(x["t"], x["e"][0] * 2.55)      
             a.append(temp)        
