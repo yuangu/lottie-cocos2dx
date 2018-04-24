@@ -10,8 +10,10 @@ import types
 class Options:
     def createLayer(self, id, width, height):
         pass
+
     def createSprite(self,id, name, width, height):
         pass 
+
     def setPosition(self,id, x, y):
         pass 
 
@@ -20,31 +22,46 @@ class Options:
 
     def positionAnimate(self,id, data, delay, parentHeight):
         pass 
+
     def setAnchorPoint(self,id, x, y):
         pass 
+
     def setRotation(self,id, rotation):
         pass 
+
     def rotationAnimate(self,id, data, delay):
         pass 
+
     def setScale(self,id, x, y):
         pass 
+
     def scaleAnimate(self,id, data, delay):
         pass 
+
     def moveTo(self,id, parentId, time, x, y):
         pass 
+
     def setContentSize(self,id, width, height):
         pass 
+
     def addChild(self,id, parentId, localZOrder = None):
         pass 
+
     def getNode(self,id):
         pass 
+
     def setOpacity(self,id, opacity):
         pass 
+
     def fadeTo(self,id, data, delay):
         pass 
 
     def createDrawNode(self,id, parentId, width):
-        pass 
+        pass
+
+    def frameAnimate(self,id, startTime, endTime):
+        pass
+
     def drawCubicBezier(
     id,
     origin,
@@ -105,7 +122,7 @@ def isNum(d):
     return type(d) == types.FloatType or type(d) == types.IntType or type(d) == types.LongType
        
 class Traverse:
-    def __init__(self, data, containerId, useSpriteFrame, options):
+    def __init__(self, data, containerId, useSpriteFrame, options, preId = None):
         self.options = options
         self.assets = {}
         self.layers = {}
@@ -113,14 +130,22 @@ class Traverse:
         self.useSpriteFrame = useSpriteFrame
         self.rootWidth =  data["w"]
         self.rootHeight = data["h"]
-        self.rootId = "root"
         
+        if containerId == None:
+            self.rootId = "root"
+        else:
+            self.rootId = containerId
         #初使化asset
         for asset in data['assets']:
             if "id" in asset.keys():               
                 self.assets[asset["id"]] = asset
 
         #初使化layer
+        if preId:
+            for layer in data["layers"]:
+                if "ind" in layer.keys():
+                    layer["ind"] = preId + str(layer["ind"])
+
         z = len(data["layers"])
         sortedLayers = {}
         for layer in data["layers"]:
@@ -131,7 +156,6 @@ class Traverse:
                          sortedLayers[self.rootId] = []
                     
                     sortedLayers[self.rootId].insert(0, layer)
-                   
                 else:
                     if not layer["parent"] in sortedLayers.keys():
                          sortedLayers[layer["parent"]] = []                    
@@ -288,7 +312,16 @@ class Traverse:
 
     def __applyTransform(self, layer, id,parentId,  width,    height,  parentWidth,    parentHeight,    st):
         options = self.options
-              
+
+        startTime = 0
+        if "ip" in layer.keys():
+            startTime = self.__getTime(layer["ip"])
+        endTime = 0
+        if "op" in layer.keys():
+            endTime = self.__getTime(layer["op"])
+
+        options.frameAnimate(id, startTime, endTime)
+
         if not "ks" in layer.keys():
             return 
         
@@ -415,107 +448,52 @@ class Traverse:
                 for item in layer["ef"]:
                     pass
 
+            options.createLayer(ind, width, height)
 
             asset = None
             if refId:
                 asset = self.getAsset(refId)  
-           
-            if  (asset and  "layers" in asset.keys()):                 
-                data = []
-                assetLayers = asset["layers"]
-                isSequence = True
 
-                for assetLayer in  reversed(assetLayers):
-                    if assetLayer['ty'] != Layer.image:
-                        raise Exception("ty no supper") 
+            if  (asset and  "layers" in asset.keys()):
+                asset['w'] = layer['w']
+                asset['h'] = layer['h']
+                asset['assets'] = self.data['assets']
+                asset["fr"] = self.data['fr']
+                Traverse(asset, ind, self.useSpriteFrame, self.options, str(ind) + "_")
+            # if  (asset and  "layers" in asset.keys()):                 
+                
+            #     assetLayers = asset["layers"]
+                
+            #     isSequence = True
+
+            #     data = []
+            #     assertId = str(ind) + "_asset" 
+            #     options.createSprite(assertId, None, None,None) 
+            #     options.addChild(assertId, ind)          
+            #     for assetLayer in  reversed(assetLayers):
+            #         if assetLayer['ty'] != Layer.image:
+            #             raise Exception("ty no supper") 
                     
-                    assetLayer_refId = assetLayer["refId"]
-                    assetLayer_asset = self.getAsset(assetLayer_refId)
-                    if assetLayer_asset == None:
-                        raise Exception("no fond assert of assetLayer") 
+            #         assetLayer_refId = assetLayer["refId"]
+            #         assetLayer_asset = self.getAsset(assetLayer_refId)
+            #         if assetLayer_asset == None:
+            #             raise Exception("no fond assert of assetLayer") 
                     
-                    p = assetLayer_asset["p"]
-                    if not self.useSpriteFrame:
-                        p = assetLayer_asset["u"] + p
+            #         p = assetLayer_asset["p"]
+            #         if not self.useSpriteFrame:
+            #             p = assetLayer_asset["u"] + p
                     
-                    k = assetLayer["ks"]["p"]["k"]                 
-                    _width, _height = 0,0
-                    if type(k) ==  types.ListType and  isNum(k[0]):
-                        _width, _height =  k[0], parentHeight - k[1]
-                    elif type(k) ==  types.ListType and type(k[0]) == types.DictType:                       
-                        ret = self.__parseK(k)
-                        _width =  ret['arr']
-                        isSequence = False
-                         
-                    k = assetLayer["ks"]["o"]["k"]
-                    opacity = k
-
-                    if type(k) == types.ListType and  len(k) > 1:                                               
-                        ret = self.__parseK(k)
-                        opacity =  ret['arr']
-                        isSequence = False
-
-                    k = assetLayer["ks"]["a"]["k"]
-                    anchorPointX, anchorPointY = k[0] / width, 1 - k[1] / height
-
-                    k = assetLayer["ks"]["r"]["k"]
-                    rotation =  k
-                    if type(k) ==  types.ListType:                  
-                        ret = self.__parseK(k)
-                        rotation =  ret['arr']
-                        isSequence = False
-                   
-                    k = assetLayer["ks"]["s"]["k"]       
-                    scaleX, scaleY = 0,0
-                    if type(k) ==  types.ListType and not isNum(k[0]):                  
-                        ret = self.__parseK(k)
-                        scaleX =  ret['arr']
-                        isSequence = False
-                    else:
-                        scaleX, scaleY =  k[0] / 100, k[1] / 100
-
-
-                    data.append({
-                         "path": p,
-                          "width": _width,
-                          "height":_height ,
-                          "opacity":opacity,
-                          "anchorPointX":anchorPointX,
-                          "anchorPointY": anchorPointY,
-                          "rotation":rotation,
-                          "parentHeight":parentHeight,
-                          "st":self.__getTime(assetLayer['st'])
-                     })
-                if len(data) > 0 and isSequence:
-                    options.animationAnimate(ind, data, isSequence )
-                    options.setPosition(ind,data[0]['width'], data[0]['height'])               
-                    options.setAnchorPoint(ind,data[0]['anchorPointX'],data[0]['anchorPointY'])
-                    options.setOpacity(ind,data[0]['opacity'])
-                    options.setRotation(ind,data[0]['rotation'])
-                else:   
-                    options.createLayer(ind, width, height)               
-                    sortedLayers = {}
-                    for assetLayer in assetLayers:
-                        if "ind" in assetLayer.keys():               
-                            self.layers[str(ind) +"_"  +  str(assetLayer ["ind"])] = layer   
-                            if "parent" not in assetLayer.keys():
-                                if not ind in sortedLayers.keys():
-                                    sortedLayers[ind] = []
-                                
-                                sortedLayers[ind].insert(0, assetLayer)
-                                assetLayer["parent"] = ind
-                            else:
-                                if not str(ind) +"_"  + str(assetLayer["parent"]) in sortedLayers.keys():
-                                    sortedLayers[str(ind) +"_"  + str(assetLayer["parent"])] = []                    
-                                if assetLayer["parent"] == 0:
-                                    sortedLayers[str(ind) +"_"  + str(assetLayer["parent"])].insert(0,assetLayer)
-                                else:
-                                    sortedLayers[str(ind) +"_"  + str(assetLayer["parent"])].append(assetLayer)
-                                assetLayer["parent"] = str(ind) +"_"  + str(assetLayer["parent"])
-                            assetLayer["ind"]= str(ind) +"_"  + str(assetLayer["ind"])
-                    self.__traverseLayer2(ind, sortedLayers)
-            else:
-                options.createLayer(ind, width, height)
+            #         assertst = self.__getTime(assetLayer['st'] + layer["st"]) 
+                    
+            #         data.append({
+            #             "st":assertst,
+            #             "texture":p
+            #         })
+            #         size =  [assetLayer["w"],  assetLayer["h"]] if ty == Layer.null else map(lambda x: x*2,assetLayer["ks"]["a"]["k"])
+            #         options.animationAnimate(assertId, data[len(data) - 1], False)    
+            #         self.__applyTransform(assetLayer, assertId, parentId, size[0], size[1], width, height, st)
+            #         options.animationAnimate(assertId, None, True)  
+            
             self.__applyTransform(layer, ind, parentId, width, height, parentWidth, parentHeight, st)
             options.addChild(ind, parentId)
 
@@ -540,9 +518,15 @@ class LuaOptions(Options):
     def createLayer(self, id, width, height):   
         self.__append( "t['%s'] = cc.Layer:create()" % id )
         self.__append( "t['%s']:setContentSize(%s, %s)" % (id, str(width), str(height)))
-        
+       # self.__append("t['%s']:setCascadeOpacityEnabled(true)"%(id,))
+
+
     def createSprite(self,id, name, width, height):
-        self.__append( "t['%s'] = display.newSprite('%s')" % (id,name) ) 
+        if name:
+            self.__append( "t['%s'] = display.newSprite('%s')" % (id,name) ) 
+        else:
+            self.__append( "t['%s'] = display.newSprite()" % (id,) ) 
+        #self.__append("t['%s']:setCascadeOpacityEnabled(true)"%(id,))
         #width, height
     
     def setPosition(self,id, x, y):
@@ -597,29 +581,85 @@ class LuaOptions(Options):
             "table.insert(data, {node=t['%s'],action=cc.Sequence:create(%s)})"%(id, ",".join(a))
         ) 
 
-    def animationAnimate(self,id,data, isSequence):
+    def animationAnimate(self,id,v, isSequence):      
         if isSequence:
-            if len(data) <= 0:
-                return 
-            self.__append( "t['%s'] = display.newSprite('%s')" % (id,data[0]["path"]) ) 
+            self.__append("end))})")
+            return
+        code = ""
+    
+        a = []
+        a.append(
+            "cc.DelayTime:create(%s)"%(v["st"],)
+        )
+
+        a.append(
+            "cc.CallFunc:create(function() t['%s']:setTexture('%s');   "%(id,v['texture'])
+        )                
+
+        self.__append(
+            "table.insert(data, {node=t['%s'],action=cc.Sequence:create(%s "%(id,  ",".join(a),)
+        ) 
             
-            self.__append( "local animation = cc.Animation:create()")
 
-            for v in data:  
-                self.__append( "animation:addSpriteFrameWithFile('%s') " % (v["path"],) )         
 
-            self.__append( "animation:setDelayPerUnit('%s') " % (data[1]["st"] - data[0]["st"],) ) 
-            self.__append( "animation:setRestoreOriginalFrame(true)") 
+    # def animationAnimate(self,id,data, isSequence):
+    #     if len(data) <= 0:
+    #         return 
+    #     isSequence = True
+    #     preSt = data[0]['st']  
+    #     diff = 0
+    #     for v in data:
+    #         if v == data[0]:
+    #             continue
+            
+    #         if v == data[1]:
+    #             diff = v['st'] - preSt
+    #             preSt = v['st']
+    #             continue
+    #         if diff != v['st'] - preSt:
+    #             isSequence = False
+    #             break
+    #         preSt = v['st']
+
+       
         
-            self.__append(
-                "table.insert(data, {node=t['%s'],action=cc.Sequence:create(cc.DelayTime:create(%s),cc.Animate:create(animation))})"%(id,data[0]["st"])
-            ) 
-        # else:
-        #     self.__append( "t['%s'] = display.newSprite('%s')" % (id,data[0]["path"]) ) 
-        #     for v in data:
-        #         temp = []
-        #         temp.append("cc.CallFunc:create(function() t['%s']:setTexture('%s') end)", (id,v["path"]) )
-                
+    #     if isSequence:           
+    #         # self.__append( "t['%s'] = display.newSprite('%s')" % (id,data[0]["path"]) ) 
+            
+    #         self.__append( "local animation = cc.Animation:create()")
+
+    #         for v in data:  
+    #             self.__append( "animation:addSpriteFrameWithFile('%s') " % (v["texture"],) )         
+
+    #         self.__append( "animation:setDelayPerUnit('%s') " % (diff,) ) 
+    #         self.__append( "animation:setRestoreOriginalFrame(true)") 
+        
+    #         self.__append(
+    #             "table.insert(data, {node=t['%s'],action=cc.Sequence:create(cc.DelayTime:create(%s),cc.Animate:create(animation))})"%(id,data[0]["st"])
+    #         ) 
+    #     else:
+
+    #         code = ""
+            
+           
+
+    #         for v in data:
+               
+    #             a = []
+    #             a.append(
+    #                 "cc.DelayTime:create(%s)"%(v["st"],)
+    #             )
+
+    #             a.append(
+    #                 "cc.CallFunc:create(function() t['%s']:setTexture('%s');  end) "%(id,v['texture'])
+    #             )                
+
+              
+
+    #             self.__append(
+    #                 "table.insert(data, {node=t['%s'],action=cc.Sequence:create(%s)})"%(id,  ",".join(a),)
+    #             ) 
+            
 
      
 
@@ -685,7 +725,8 @@ class LuaOptions(Options):
         self.__append( "t['%s']:addChild(t['%s'])"%(c,id) )
         if localZOrder:
             self.__append( "t['%s']:setLocalZOrder(%s)"%(id, localZOrder) )
-         
+      
+
             
     def getNode(self,id):
         pass 
@@ -712,7 +753,21 @@ class LuaOptions(Options):
     
         self.__append(
             "table.insert(data, {node=t['%s'],action=cc.Sequence:create(%s)})"%(id, ",".join(a))
-        )  
+        ) 
+
+    def frameAnimate(self,id, startTime, endTime):
+        self.__append("t['%s']:hide()"%(id,))
+        a = []
+      
+        a.append("cc.DelayTime:create(%s)"%(startTime,))
+        a.append("cc.CallFunc:create(function() t['%s']:show()   end)"%(id,))
+        a.append("cc.DelayTime:create(%s)"%(endTime - startTime,))
+        a.append("cc.CallFunc:create(function() t['%s']:hide()   end)"%(id,))
+        self.__append(
+            "table.insert(data, {node=t['%s'],action=cc.Sequence:create(%s)})"%(id, ",".join(a))
+        ) 
+        
+
     def createDrawNode(self,id, parentId, width):
         if width:
             self.__append( "t['%s'] = cc.DrawNode:create(%s)"% (id, width))
@@ -740,7 +795,7 @@ f = open('export/data.json')
 data = json.load(f)
 f.close()
 options = LuaOptions()
-Traverse(data, 'g', False, options)
+Traverse(data, None, False, options)
 print options.getCode()
 
 
