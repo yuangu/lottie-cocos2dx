@@ -30,14 +30,14 @@ function M:ctor(data)
     self.mWillShowLayersInfo = {}
     self.mLayerInfoMap = {}
     
-    self.mRootLayers = {}
+    local  rootLayers = {}
     self.mParentLayer = {}
     for i, v in ipairs(data.layers) do
         table.insert(self.mWillShowLayersInfo, v)
         self.mLayerInfoMap[v.id] = v
         
         if not v.parent then
-            table.insert(self.mRootLayers, v)
+            table.insert(rootLayers, v)
         else
             if not self.mParentLayer[v.parent] then
                 self.mParentLayer[v.parent] = {}
@@ -54,7 +54,7 @@ function M:ctor(data)
     self:setContentSize(data.w, data.h)
     self:setPosition(data.x or 0, data.x or 0)
     
-    for i, v in ipairs(self.mRootLayers) do
+    for i, v in ipairs(rootLayers) do
         self:createLayer(v)
         self:createLayerByParentkey(v.id)
     end
@@ -79,7 +79,7 @@ function M:update(dt)
 
     for id, info in pairs(self.mLayerInfoMap) do
         if self.mShowLayer[info.id] then
-            if info.st and  info.et and info.st <= self.mTime and info.et >= self.mTime  then
+            if info.st and  info.et and info.st <= self.mTime and info.et > self.mTime  then
                 self.mShowLayer[info.id]:show()
             else
             self.mShowLayer[info.id]:hide()
